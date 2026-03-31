@@ -1,7 +1,8 @@
 import { writable, derived, get } from "svelte/store";
 import { set as idbSet, get as idbGet } from "idb-keyval";
 import { api } from "../api";
-import { addToQueue, syncStatus } from "./sync";
+import { addToQueue, syncStatus, syncQueue } from "./sync";
+import type { SyncAction } from "./sync";
 import type { Note, CreateNoteDto, UpdateNoteDto } from "../types/note";
 
 const NOTES_CACHE_KEY = "note-flow-cache";
@@ -62,10 +63,48 @@ export async function fetchNotes(page = 1) {
   }
 
   try {
-    const data = await api.getNotes(page);
-    if (data && data.length > 0) {
-      notes.set(data);
-    }
+    const serverData = await api.getNotes(page);
+    const currentQueue = get(syncQueue) as SyncAction[];
+    
+    // Create a working set starting with server data
+    let mergedNotes = [...serverData];
+
+    // 1. Apply PENDING DELETES
+    const pendingDeleteIds = new Set(
+      currentQueue
+        .filter(a => a.type === "DELETE")
+        .map(a => (a as any).id)
+    );
+    mergedNotes = mergedNotes.filter(n => !pendingDeleteIds.has(n.id));
+
+    // 2. Apply PENDING UPDATES
+    currentQueue
+      .filter(a => a.type === "UPDATE")
+      .forEach(action => {
+        const act = action as any;
+        const index = mergedNotes.findIndex(n => n.id === act.id);
+        if (index !== -1) {
+          mergedNotes[index] = { ...mergedNotes[index], ...act.data };
+        }
+      });
+
+    // 3. Apply PENDING CREATES
+    currentQueue
+      .filter(a => a.type === "CREATE")
+      .forEach(action => {
+        const act = action as any;
+        const exists = mergedNotes.some(n => n.id === act.tempId);
+        if (!exists) {
+          const tempNote: Note = {
+            ...act.data,
+            id: act.tempId,
+            createdAt: new Date().toISOString()
+          };
+          mergedNotes.unshift(tempNote);
+        }
+      });
+
+    notes.set(mergedNotes);
   } catch (error) {
     console.error("Failed to fetch notes:", error);
   } finally {

@@ -2,7 +2,7 @@ import { writable, get } from "svelte/store";
 import { set as idbSet, get as idbGet, del as idbDel } from "idb-keyval";
 import { api, BASE_URL } from "../api";
 
-type SyncAction = 
+export type SyncAction = 
   | { type: "CREATE"; data: any; tempId: string }
   | { type: "UPDATE"; id: string; data: any }
   | { type: "DELETE"; id: string };
