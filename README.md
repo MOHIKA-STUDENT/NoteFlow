@@ -1,5 +1,5 @@
 # SHA-256 Hash of GitHub Username
-# [Insert your SHA-256 hash here. Example: 4869279a5b3a...]
+# [db7d806235fcb18668dddc84cf9f583f650022d6bdd9b702e5697444b09f532c]
 
 # 📝 NoteFlow - Premium Modern Notes Studio
 
@@ -13,8 +13,8 @@ NoteFlow is a state-of-the-art notes application built for the **InLabels Fronte
 NoteFlow is a studio-grade creative suite built for the **Frontend Internship Take-Home Challenge**. It combines a high-performance **offline-first sync engine** with a premium, glassmorphic UI.
 
 ## 🔗 Links
-- **Live Demo**: [Your Deployment Link Here]
-- **GitHub Repository**: [Your GitHub Link Here]
+- **Live Demo**: [https://note-flow-rouge.vercel.app]
+- **GitHub Repository**: [https://github.com/MOHIKA-STUDENT/NoteFlow]
 
 ## ✨ Requirements & Feature Checklist
 
