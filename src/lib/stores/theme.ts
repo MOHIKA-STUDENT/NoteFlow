@@ -21,6 +21,7 @@ if (browser) {
 export function toggleTheme() {
   theme.update(current => {
     const next = current === "light" ? "dark" : "light";
+    console.log("Switching theme to:", next);
     if (browser) {
       const root = document.documentElement;
       if (next === "dark") {
@@ -34,6 +35,7 @@ export function toggleTheme() {
         localStorage.setItem("theme", "light");
         root.style.colorScheme = "light";
       }
+      console.log("Current HTML classes:", root.className);
     }
     return next;
   });

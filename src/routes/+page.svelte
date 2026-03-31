@@ -86,7 +86,7 @@
 
 <div class="container mx-auto px-4 space-y-12 pb-24">
   <!-- Interactive Dashboard Header -->
-  <div in:fade={{ duration: 1000 }} class="glass-panel p-8 md:p-10 rounded-[3rem] flex flex-col md:flex-row justify-between items-start md:items-center gap-8 shadow-premium relative">
+  <div in:fade={{ duration: 1000 }} class="glass-panel p-8 md:p-10 rounded-[3rem] flex flex-col md:flex-row justify-between items-start md:items-center gap-8 shadow-premium relative z-20">
     <div class="absolute top-0 right-0 p-8 opacity-10 pointer-events-none overflow-hidden rounded-[3rem] w-full h-full">
        <Zap class="absolute top-8 right-8 w-32 h-32 text-primary" />
     </div>
