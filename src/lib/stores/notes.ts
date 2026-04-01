@@ -1,7 +1,7 @@
 import { writable, derived, get } from "svelte/store";
 import { set as idbSet, get as idbGet } from "idb-keyval";
 import { api } from "../api";
-import { addToQueue, syncStatus, syncQueue } from "./sync";
+import { addToQueue, syncStatus, syncQueue, removeFromQueue } from "./sync";
 import type { SyncAction } from "./sync";
 import type { Note, CreateNoteDto, UpdateNoteDto } from "../types/note";
 
@@ -14,11 +14,60 @@ export const sortBy = writable<"title" | "createdAt" | "id">("createdAt");
 export const sortOrder = writable<"asc" | "desc">("desc");
 
 // Intercept store updates to persist to IndexedDB
+let isInitialSubscription = true;
 notes.subscribe(value => {
-  if (typeof window !== "undefined" && value.length > 0) {
+  if (isInitialSubscription) {
+    isInitialSubscription = false;
+    return;
+  }
+  if (typeof window !== "undefined") {
+    // We allow saving 0 length (empty) arrays to clear the cache when the last note is deleted
     idbSet(NOTES_CACHE_KEY, value);
   }
 });
+
+/**
+ * Helper to apply the background sync queue to a set of notes.
+ * This is used for BOTH cache loading and server data fetching.
+ */
+function applySyncQueue(notes: Note[], queue: SyncAction[]): Note[] {
+  let merged = [...notes];
+
+  // 1. Apply PENDING DELETES
+  const pendingDeleteIds = new Set(
+    queue
+      .filter(a => a.type === "DELETE")
+      .map(a => (a as any).id)
+  );
+  merged = merged.filter(n => !pendingDeleteIds.has(n.id));
+
+  // 2. Apply PENDING UPDATES
+  queue.forEach(action => {
+    if (action.type === "UPDATE") {
+      const index = merged.findIndex(n => n.id === action.id);
+      if (index !== -1) {
+        merged[index] = { ...merged[index], ...action.data };
+      }
+    }
+  });
+
+  // 3. Apply PENDING CREATES
+  queue.forEach(action => {
+    if (action.type === "CREATE") {
+      const exists = merged.some(n => n.id === action.tempId);
+      if (!exists) {
+        const tempNote: Note = {
+          ...action.data,
+          id: action.tempId,
+          createdAt: new Date().toISOString()
+        };
+        merged.unshift(tempNote);
+      }
+    }
+  });
+
+  return merged;
+}
 
 // Derived store for filtered and sorted notes
 export const filteredNotes = derived(
@@ -59,50 +108,19 @@ export async function fetchNotes(page = 1) {
   // Load from cache first for instant UI
   const cache = await idbGet<Note[]>(NOTES_CACHE_KEY);
   if (cache && get(notes).length === 0) {
-    notes.set(cache);
+    // CRITICAL: Apply the current sync queue filters to the cached data
+    // to prevent deleted notes from "flashing" before the server responds.
+    const currentQueue = get(syncQueue) as SyncAction[];
+    const filteredCache = applySyncQueue(cache, currentQueue);
+    notes.set(filteredCache);
   }
 
   try {
     const serverData = await api.getNotes(page);
     const currentQueue = get(syncQueue) as SyncAction[];
     
-    // Create a working set starting with server data
-    let mergedNotes = [...serverData];
-
-    // 1. Apply PENDING DELETES
-    const pendingDeleteIds = new Set(
-      currentQueue
-        .filter(a => a.type === "DELETE")
-        .map(a => (a as any).id)
-    );
-    mergedNotes = mergedNotes.filter(n => !pendingDeleteIds.has(n.id));
-
-    // 2. Apply PENDING UPDATES
-    currentQueue
-      .filter(a => a.type === "UPDATE")
-      .forEach(action => {
-        const act = action as any;
-        const index = mergedNotes.findIndex(n => n.id === act.id);
-        if (index !== -1) {
-          mergedNotes[index] = { ...mergedNotes[index], ...act.data };
-        }
-      });
-
-    // 3. Apply PENDING CREATES
-    currentQueue
-      .filter(a => a.type === "CREATE")
-      .forEach(action => {
-        const act = action as any;
-        const exists = mergedNotes.some(n => n.id === act.tempId);
-        if (!exists) {
-          const tempNote: Note = {
-            ...act.data,
-            id: act.tempId,
-            createdAt: new Date().toISOString()
-          };
-          mergedNotes.unshift(tempNote);
-        }
-      });
+    // Use the helper to merge server data with queue
+    const mergedNotes = applySyncQueue(serverData, currentQueue);
 
     notes.set(mergedNotes);
   } catch (error) {
@@ -137,10 +155,33 @@ export async function deleteNote(id: string) {
   const originalNotes = get(notes);
   const deletedNote = originalNotes.find(n => n.id === id);
 
+  if (!deletedNote) return { undo: () => {} };
+
   // Optimistic update
   notes.update(n => n.filter(note => note.id !== id));
 
   await addToQueue({ type: "DELETE", id });
 
-  return { undo: () => notes.set(originalNotes) };
+  return { 
+    undo: async () => {
+      // 1. Attempt to remove the delete action from the sync queue
+      const wasCanceled = removeFromQueue(id, "DELETE");
+      
+      // 2. If it was already processed, we must "re-create" it
+      if (!wasCanceled) {
+        console.log("Delete action already processed. Re-creating note...");
+        await addToQueue({ 
+           type: "CREATE", 
+           data: { 
+             title: deletedNote.title, 
+             content: deletedNote.content 
+           }, 
+           tempId: id 
+        });
+      }
+      
+      // 3. Restore the local store
+      notes.set(originalNotes);
+    } 
+  };
 }

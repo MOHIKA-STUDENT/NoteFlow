@@ -72,6 +72,39 @@ export async function clearQueue() {
   syncStatus.set("synced");
 }
 
+/**
+ * Attempts to remove an entry from the sync queue if it hasn't been processed yet.
+ * Returns true if the action was removed, false otherwise.
+ */
+export function removeFromQueue(id: string, type: SyncAction['type']): boolean {
+  let removed = false;
+  syncQueue.update(q => {
+    // If we're processing, the first item in the queue is currently in-flight
+    // and cannot be safely removed from the queue without aborting the request.
+    const searchStartIndex = isProcessing ? 1 : 0;
+    
+    const index = q.findIndex((action, i) => {
+      if (i < searchStartIndex) return false;
+      if (action.type !== type) return false;
+      
+      if (type === 'CREATE') {
+        return (action as any).tempId === id;
+      }
+      return (action as any).id === id;
+    });
+
+    if (index !== -1) {
+      const newQueue = [...q];
+      newQueue.splice(index, 1);
+      persistQueue(newQueue);
+      removed = true;
+      return newQueue;
+    }
+    return q;
+  });
+  return removed;
+}
+
 let isProcessing = false;
 async function processQueue() {
   if (isProcessing) return;
